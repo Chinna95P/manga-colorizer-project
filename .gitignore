@@ -1,0 +1,37 @@
+# User content and generated archives
+inputs/
+outputs/
+*.cbz
+*.cbr
+*.pdf
+
+# Runtime data and checkpoints
+workspace/jobs*/
+workspace/*_colorized_volumes/
+workspace/*_chapters/
+workspace/*.json
+workspace/*.log
+progress.json
+*.in-progress/
+
+# Third-party checkout and model weights
+workspace/manga-colorization-v2/
+workspace/models/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+*.zip
+
+# Python and local tooling
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+.idea/
+.vscode/
