@@ -137,6 +137,17 @@ logs, local environments, and model weights. Do not commit copyrighted manga or
 third-party weights unless you have the rights and the relevant license permits
 redistribution.
 
+## License
+
+Original code and documentation in this repository are available under the
+[MIT License](LICENSE), copyright © 2026 Chinna95P.
+
+This license does not cover Manga Colorization v2, enhancement models, other
+third-party components, manga source files, or generated manga output. Those
+items remain under their respective terms. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for component-specific
+licenses, restrictions, and attribution information.
+
 ## Community thanks and acknowledgements
 
 This project depends on work shared by the open-source manga and image-restoration
