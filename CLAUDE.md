@@ -185,9 +185,11 @@ Input CBZs must have volume markers: `V01`, `v2`, `V015`, etc.
 
 | File | Purpose |
 |------|---------|
+| `agents/SKILL.md` | Master AI router and subsystem development documentation index |
 | `run_colorization.py` | Main batch runner implementing Default Model v1 |
 | `pipeline_templates.json` | Formal template definitions with hashes and licenses |
 | `ENHANCEMENT_MODELS.md` | Model selection rationale and alternatives reviewed |
+| `COLOR_DETECTION.md` | Technical details and thresholds for color pre-scanning |
 | `scan_manga_colors.py` | Utility to measure existing color saturation |
 | `split_cbz_into_chapters.py` | Utility to split volumes into chapter archives |
 | `progress.json` | Real-time batch status (auto-generated) |
