@@ -2,5 +2,7 @@ numpy
 Pillow
 matplotlib
 scikit-image
+opencv-python-headless
+spandrel
 torch
 torchvision
