@@ -29,6 +29,11 @@ OUTPUT_DIR = ROOT / "outputs"
 DEVICE = "cpu"
 EXPECTED_VOLUMES = 0
 
+# Color detection thresholds
+COLOR_SATURATION_THRESHOLD = 0.12  # Minimum saturation to consider a pixel colored
+COLOR_FRACTION_THRESHOLD = 0.15    # Minimum fraction of colored pixels to skip colorization
+SKIP_COLORED_PAGES = True          # Enable automatic colored page detection
+
 
 def atomic_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +166,36 @@ def valid_checkpoint(path: Path) -> bool:
         return False
 
 
+def measure_color_content(image: Image.Image) -> dict[str, float]:
+    """Measure meaningful chroma in an image (adapted from scan_manga_colors.py)."""
+    rgb = image.convert("RGB")
+    rgb.thumbnail((144, 144), Image.Resampling.LANCZOS)
+    values = np.asarray(rgb, dtype=np.float32)
+    high = values.max(axis=2)
+    low = values.min(axis=2)
+    saturation = (high - low) / np.maximum(high, 1.0)
+    visible = high >= 35.0
+    denominator = max(int(visible.sum()), 1)
+    return {
+        "color_fraction": float(((saturation >= COLOR_SATURATION_THRESHOLD) & visible).sum() / denominator),
+        "strong_fraction": float(((saturation >= 0.25) & visible).sum() / denominator),
+        "mean_saturation": float(saturation[visible].mean()) if visible.any() else 0.0,
+    }
+
+
+def is_already_colored(image: Image.Image) -> bool:
+    """Determine if a page already has meaningful color and should be skipped."""
+    if not SKIP_COLORED_PAGES:
+        return False
+    metrics = measure_color_content(image)
+    return metrics["color_fraction"] >= COLOR_FRACTION_THRESHOLD
+
+
+def create_passthrough_checkpoint(source: Image.Image, path: Path, suffix: str) -> None:
+    """Save the source image as a checkpoint without colorization."""
+    save_checkpoint(source, path, suffix)
+
+
 def progress(manifest: dict, job_dir: Path) -> tuple[int, int]:
     images = [entry for entry in manifest["entries"] if entry["is_image"]]
     complete = sum(valid_checkpoint(checkpoint_path(job_dir, entry["name"])) for entry in images)
@@ -265,19 +300,44 @@ def colorize_batch(cbz: Path, manifest: dict, page_limit: int) -> int:
                not valid_checkpoint(checkpoint_path(job_dir, entry["name"]))]
     if not pending:
         return 0
-    colorizer = load_colorizer()
-    processed = 0
-    for entry in pending[:page_limit]:
-        write_status(job_dir, manifest, "running", entry["name"])
-        source = read_image_from_archive(cbz, entry["name"])
-        # PIL can expose a read-only NumPy view for some JPEGs; the upstream
-        # denoiser converts it to a tensor, so provide an explicitly writable copy.
-        colorizer.set_image(np.array(source, copy=True), 576, True, 25)
-        result = finish_image(source, colorizer.colorize())
+
+    # Pre-scan all pending pages for color content if color detection is enabled
+    pages_to_process = []
+    pages_to_passthrough = []
+
+    if SKIP_COLORED_PAGES:
+        for entry in pending[:page_limit]:
+            source = read_image_from_archive(cbz, entry["name"])
+            if is_already_colored(source):
+                pages_to_passthrough.append((entry, source))
+            else:
+                pages_to_process.append(entry)
+    else:
+        pages_to_process = pending[:page_limit]
+
+    # Create passthrough checkpoints for already-colored pages
+    for entry, source in pages_to_passthrough:
+        write_status(job_dir, manifest, "running", entry["name"] + " (already colored)")
         output = checkpoint_path(job_dir, entry["name"])
-        save_checkpoint(result, output, PurePosixPath(entry["name"]).suffix)
-        processed += 1
+        create_passthrough_checkpoint(source, output, PurePosixPath(entry["name"]).suffix)
         write_status(job_dir, manifest, "running")
+
+    # Colorize black-and-white pages
+    processed = len(pages_to_passthrough)
+    if pages_to_process:
+        colorizer = load_colorizer()
+        for entry in pages_to_process:
+            write_status(job_dir, manifest, "running", entry["name"])
+            source = read_image_from_archive(cbz, entry["name"])
+            # PIL can expose a read-only NumPy view for some JPEGs; the upstream
+            # denoiser converts it to a tensor, so provide an explicitly writable copy.
+            colorizer.set_image(np.array(source, copy=True), 576, True, 25)
+            result = finish_image(source, colorizer.colorize())
+            output = checkpoint_path(job_dir, entry["name"])
+            save_checkpoint(result, output, PurePosixPath(entry["name"]).suffix)
+            processed += 1
+            write_status(job_dir, manifest, "running")
+
     return processed
 
 
@@ -343,10 +403,12 @@ def validate_output(source_path: Path, output_path: Path, manifest: dict) -> Non
 
 
 def run(args: argparse.Namespace) -> int:
-    global JOBS_DIR, OUTPUT_DIR, DEVICE, EXPECTED_VOLUMES
+    global JOBS_DIR, OUTPUT_DIR, DEVICE, EXPECTED_VOLUMES, SKIP_COLORED_PAGES, COLOR_FRACTION_THRESHOLD
     JOBS_DIR = args.jobs_dir.resolve()
     OUTPUT_DIR = args.output_dir.resolve()
     DEVICE = args.device
+    SKIP_COLORED_PAGES = args.skip_colored
+    COLOR_FRACTION_THRESHOLD = args.color_threshold
     inputs = discover_inputs(args.input_dir)
     if not inputs:
         print(f"No volume-numbered CBZ inputs found in {args.input_dir}", file=sys.stderr)
@@ -384,9 +446,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=ROOT / "outputs")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--pages", type=int, default=8, help="maximum pages in this explicit batch")
+    parser.add_argument("--skip-colored", action="store_true", default=True,
+                        help="automatically detect and skip already-colored pages (default: enabled)")
+    parser.add_argument("--no-skip-colored", dest="skip_colored", action="store_false",
+                        help="disable automatic colored page detection")
+    parser.add_argument("--color-threshold", type=float, default=0.15,
+                        help="minimum color fraction to consider a page already colored (default: 0.15)")
     args = parser.parse_args()
     if args.pages < 1:
         parser.error("--pages must be positive")
+    if not 0.0 <= args.color_threshold <= 1.0:
+        parser.error("--color-threshold must be between 0.0 and 1.0")
     return args
 
 

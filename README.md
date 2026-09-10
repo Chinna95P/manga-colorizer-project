@@ -11,6 +11,7 @@ order while validating every completed output.
 ## Features
 
 - Processes volume-numbered CBZ archives in deterministic volume order.
+- **Automatically detects and skips already-colored pages** to save processing time.
 - Saves and validates a checkpoint after every page.
 - Resumes safely by skipping valid checkpoints.
 - Rejects unsafe archive paths and changed input archives.
